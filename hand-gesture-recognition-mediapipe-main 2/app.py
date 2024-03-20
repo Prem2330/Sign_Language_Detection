@@ -1,19 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import csv   #Parsing through CSV file
-import copy  #Creating duplicate objects
-import argparse  #Parse command line arguments
-import itertools    #Used for looping
+import csv   # Parsing through CSV file
+import copy  # Creating duplicate objects
+import argparse  # Parse command line arguments
+import itertools    # Used for looping
 from collections import Counter  # Counter of things like string length and saving as dictionary file
-from collections import deque  #Implementing double-ended queues
+from collections import deque  # Implementing double-ended queues
 
 import cv2 as cv   # Computer Vision library for face detection, object detection , camera and more
 import numpy as np   # Create arrays for scientific computing
 import mediapipe as mp  # used for hand tracking, object detection , pose, etc
 
-from utils import CvFpsCalc # Used for calculating frame rates etc
+from utils import CvFpsCalc  # Used for calculating frame rates etc
 from model import KeyPointClassifier  # work with keypoints
-from model import PointHistoryClassifier  #Work with historical data
+from model import PointHistoryClassifier  # Work with historical data
+
 
 
 def get_args():
@@ -40,13 +41,12 @@ def get_args():
 # This function gives the information of the device which helps in setting up the camera,etc
 
 def main():
+    textarr=["Start"]
     # Argument parsing #################################################################
     args = get_args()
-
     cap_device = args.device
     cap_width = args.width
     cap_height = args.height
-
     use_static_image_mode = args.use_static_image_mode
     min_detection_confidence = args.min_detection_confidence
     min_tracking_confidence = args.min_tracking_confidence
@@ -59,12 +59,12 @@ def main():
     cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
 
     # Model load #############################################################
-    mp_hands = mp.solutions.hands  #import hands module
+    mp_hands = mp.solutions.hands  # import hands module
     hands = mp_hands.Hands(
-        static_image_mode=use_static_image_mode,     #1=Image,2=Video
-        max_num_hands=1,
-        min_detection_confidence=min_detection_confidence,     #Min score for hand to be valid
-        min_tracking_confidence=min_tracking_confidence,          #Max score for hand to be valid
+        static_image_mode=use_static_image_mode,     # 1=Image,2=Video
+        max_num_hands=2,
+        min_detection_confidence=min_detection_confidence,     # Min score for hand to be valid
+        min_tracking_confidence=min_tracking_confidence,          # Max score for hand to be valid
     )
 
     keypoint_classifier = KeyPointClassifier()
@@ -106,7 +106,7 @@ def main():
         key = cv.waitKey(10)
         if key == 27:  # ESC
             break
-        number, mode = select_mode(key, mode)    #Assign different modes on button clicks
+        number, mode = select_mode(key, mode)    # Assign different modes on button clicks
 
         # Camera capture #####################################################
         ret, image = cap.read()
@@ -116,9 +116,9 @@ def main():
         debug_image = copy.deepcopy(image)
 
         # Detection implementation #############################################################
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)   #Ensure compatibility with others
+        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)   # Ensure compatibility with others
 
-        image.flags.writeable = False   #For data intigrity
+        image.flags.writeable = False   # For data intigrity
         results = hands.process(image)    # Detects hands
         image.flags.writeable = True
 
@@ -162,13 +162,16 @@ def main():
                 # Drawing part
                 debug_image = draw_bounding_rect(use_brect, debug_image, brect)
                 debug_image = draw_landmarks(debug_image, landmark_list)
-                debug_image = draw_info_text(
+                debug_image, hand_sign_text = draw_info_text(
                     debug_image,
                     brect,
                     handedness,
                     keypoint_classifier_labels[hand_sign_id],
                     point_history_classifier_labels[most_common_fg_id[0][0]],
                 )
+                if textarr[-1] != hand_sign_text:
+                    textarr.append(hand_sign_text)
+
         else:
             point_history.append([0, 0])
 
@@ -180,6 +183,7 @@ def main():
 
     cap.release()
     cv.destroyAllWindows()
+    print(textarr)
 
 
 def select_mode(key, mode):
@@ -193,7 +197,7 @@ def select_mode(key, mode):
         mode = 2
 
     if mode == 1:
-        num = 10  # this will vary from [0-90] to achive double-digit indexing
+        num = 0  # this will vary from [0-90] to achive double-digit indexing
         number = num + (key - 48)
 
     return number, mode
@@ -514,7 +518,7 @@ def draw_info_text(image, brect, handedness, hand_sign_text,
                    cv.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2,
                    cv.LINE_AA)
 
-    return image
+    return image, hand_sign_text
 
 
 def draw_point_history(image, point_history):
