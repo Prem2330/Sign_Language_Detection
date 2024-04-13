@@ -13,7 +13,8 @@ import mediapipe as mp  # used for hand tracking, object detection , pose, etc
 
 from utils import CvFpsCalc  # Used for calculating frame rates etc
 from model import KeyPointClassifier  # work with keypoints
-
+from gtts import gTTS
+from mtranslate import translate
 
 
 
@@ -159,7 +160,11 @@ def main():
         # Screen reflection #############################################################
         cv.imshow('Hand Gesture Recognition', debug_image)
 
-
+    text_input = text
+    translated_text = translate(text_input, "hi")
+    print(translated_text)
+    tts=gTTS(text=translated_text,lang="en")
+    tts.save("output_audio.mp3")
     cap.release()
     cv.destroyAllWindows()
     print(textarr)
