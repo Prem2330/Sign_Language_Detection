@@ -6,6 +6,7 @@ import argparse  # Parse command line arguments
 import itertools    # Used for looping
 from collections import Counter  # Counter of things like string length and saving as dictionary file
 from collections import deque  # Implementing double-ended queues
+from transformers import pipeline
 
 import cv2 as cv   # Computer Vision library for face detection, object detection , camera and more
 import numpy as np   # Create arrays for scientific computing
@@ -15,6 +16,8 @@ from utils import CvFpsCalc  # Used for calculating frame rates etc
 from model import KeyPointClassifier  # work with keypoints
 from gtts import gTTS
 from mtranslate import translate
+import pywhatkit as kit
+import re
 
 
 
@@ -42,7 +45,9 @@ def get_args():
 # This function gives the information of the device which helps in setting up the camera,etc
 
 def main():
-    textarr=["Start"]
+    text_generator = pipeline("text-generation", model="gpt2")
+    phonenumber="+919021069704"
+    textarr=[]
     # Argument parsing #################################################################
     args = get_args()
     cap_device = args.device
@@ -88,7 +93,7 @@ def main():
 
     #  ########################################################################
     mode = 0
-
+    print("Sentence Recommendation")
     while True:
         fps = cvFpsCalc.get()
 
@@ -112,7 +117,8 @@ def main():
         results = hands.process(image)    # Detects hands
         image.flags.writeable = True
 
-        text = str(textarr)
+
+
         position = (50, 50)  # (x, y) coordinates where the text will be placed
         font = cv.FONT_HERSHEY_SIMPLEX
         font_scale = 1
@@ -154,13 +160,41 @@ def main():
                 if hand_sign_text not in textarr:
                     textarr.append(hand_sign_text)
 
+        sentence = " ".join(textarr)
+        print(sentence)
+        text = str(sentence)
         debug_image = cv.putText(debug_image, text, position, font, font_scale, color, thickness)
         debug_image = draw_info(debug_image, fps, mode, number)
 
         # Screen reflection #############################################################
-        cv.imshow('Hand Gesture Recognition', debug_image)
+        # cv.imshow('Hand Gesture Recognition', debug_image)
+
+
+    prefix = text
+    # if prefix.lower() == 'exit':
+    #     break
+
+    max_length = 50
+    completions = text_generator(prefix, max_length=max_length, num_return_sequences=3)
+    if completions:
+        print("Auto-complete suggestions:")
+        for i, completion in enumerate(completions, 1):
+            generated_text = completion['generated_text']
+            # Filter out incomplete sentences
+            sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s", generated_text)
+            complete_sentences = [sentence for sentence in sentences if
+                                  len(sentence.strip()) > 0 and len(sentence.split()) >= 3]
+            if complete_sentences:
+                print(f"{i}. {complete_sentences[0]}")
+            else:
+                print(f"{i}. (Incomplete or nonsensical)")
+    else:
+        print("No suggestions found.")
+
 
     text_input = text
+    message=text_input
+    # kit.sendwhatmsg_instantly(phonenumber,message)
     translated_text = translate(text_input, "hi")
     print(translated_text)
     tts=gTTS(text=translated_text,lang="en")
