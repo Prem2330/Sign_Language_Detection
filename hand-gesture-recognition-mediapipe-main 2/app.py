@@ -1,24 +1,38 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import csv   # Parsing through CSV file
+import csv  # Parsing through CSV file
 import copy  # Creating duplicate objects
 import argparse  # Parse command line arguments
-import itertools    # Used for looping
-from collections import Counter  # Counter of things like string length and saving as dictionary file
-from collections import deque  # Implementing double-ended queues
+import itertools  # Used for looping
+import pywhatkit
 from transformers import pipeline
-
-import cv2 as cv   # Computer Vision library for face detection, object detection , camera and more
-import numpy as np   # Create arrays for scientific computing
+from flask_cors import CORS
+import re
+import cv2 as cv  # Computer Vision library for face detection, object detection , camera and more
+import numpy as np  # Create arrays for scientific computing
 import mediapipe as mp  # used for hand tracking, object detection , pose, etc
+from urllib.parse import quote
 
 from utils import CvFpsCalc  # Used for calculating frame rates etc
 from model import KeyPointClassifier  # work with keypoints
 from gtts import gTTS
 from mtranslate import translate
 import pywhatkit as kit
-import re
+from flask import Flask, render_template, Response, jsonify, request
 
+app = Flask(__name__)
+CORS(app)
+
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(main(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 def get_args():
@@ -38,24 +52,27 @@ def get_args():
                         type=int,
                         default=0.5)
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     return args
+
+
+text = ""
+signal=0
+
 
 # This function gives the information of the device which helps in setting up the camera,etc
 
 def main():
-    text_generator = pipeline("text-generation", model="gpt2")
-    phonenumber="+919021069704"
-    textarr=[]
+    textarr = []
     # Argument parsing #################################################################
     args = get_args()
-    cap_device = args.device
-    cap_width = args.width
-    cap_height = args.height
-    use_static_image_mode = args.use_static_image_mode
-    min_detection_confidence = args.min_detection_confidence
-    min_tracking_confidence = args.min_tracking_confidence
+    cap_device = 0  # Default to the first camera device (assuming a webcam)
+    cap_width = 640  # Default width for capturing frames
+    cap_height = 480  # Default height for capturing frames
+    use_static_image_mode = False  # Default to not using static image mode
+    min_detection_confidence = 0.5  # Default minimum confidence for detection
+    min_tracking_confidence = 0.5  # Default minimum confidence for tracking
 
     use_brect = True
 
@@ -67,33 +84,31 @@ def main():
     # Model load #############################################################
     mp_hands = mp.solutions.hands  # import hands module
     hands = mp_hands.Hands(
-        static_image_mode=use_static_image_mode,     # 1=Image,2=Video
+        static_image_mode=use_static_image_mode,  # 1=Image,2=Video
         max_num_hands=2,
-        min_detection_confidence=min_detection_confidence,     # Min score for hand to be valid
-        min_tracking_confidence=min_tracking_confidence,          # Max score for hand to be valid
+        min_detection_confidence=min_detection_confidence,  # Min score for hand to be valid
+        min_tracking_confidence=min_tracking_confidence,  # Max score for hand to be valid
     )
 
     keypoint_classifier = KeyPointClassifier()
-
-
 
     # Read labels ###########################################################
     with open('model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = csv.reader(f)
         keypoint_classifier_labels = [
-            row[0] for row in keypoint_classifier_labels    # First value taken in each row of csv file
+            row[0] for row in keypoint_classifier_labels  # First value taken in each row of csv file
         ]
 
-
     # FPS Measurement ########################################################
-    cvFpsCalc = CvFpsCalc(buffer_len=10)   # FPS tells us how fast our program is running
+    cvFpsCalc = CvFpsCalc(buffer_len=10)  # FPS tells us how fast our program is running
 
     # Coordinate history #################################################################
 
     #  ########################################################################
     mode = 0
-    print("Sentence Recommendation")
+    # print("Sentence Recommendation")
+    sentence_arr = []
     while True:
         fps = cvFpsCalc.get()
 
@@ -101,7 +116,7 @@ def main():
         key = cv.waitKey(10)
         if key == 27:  # ESC
             break
-        number, mode = select_mode(key, mode)    # Assign different modes on button clicks
+        number, mode = select_mode(key, mode)  # Assign different modes on button clicks
 
         # Camera capture #####################################################
         ret, image = cap.read()
@@ -111,13 +126,11 @@ def main():
         debug_image = copy.deepcopy(image)
 
         # Detection implementation #############################################################
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)   # Ensure compatibility with others
+        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)  # Ensure compatibility with others
 
-        image.flags.writeable = False   # For data intigrity
-        results = hands.process(image)    # Detects hands
+        image.flags.writeable = False  # For data intigrity
+        results = hands.process(image)  # Detects hands
         image.flags.writeable = True
-
-
 
         position = (50, 50)  # (x, y) coordinates where the text will be placed
         font = cv.FONT_HERSHEY_SIMPLEX
@@ -141,12 +154,9 @@ def main():
 
                 # Hand sign classification
                 hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-                print(hand_sign_id)
-
-
+                # print(hand_sign_id)
 
                 # Add the text to the image
-
 
                 debug_image = draw_bounding_rect(use_brect, debug_image, brect)
                 debug_image = draw_landmarks(debug_image, landmark_list)
@@ -159,17 +169,100 @@ def main():
                 )
                 if hand_sign_text not in textarr:
                     textarr.append(hand_sign_text)
+                    if (textarr[-1] == "No"):
+                        global signal
+                        signal=1
+                    elif(textarr[-1] == "Yes"):
+                        signal=2
+
+        global text
 
         sentence = " ".join(textarr)
-        print(sentence)
         text = str(sentence)
-        debug_image = cv.putText(debug_image, text, position, font, font_scale, color, thickness)
+        debug_image = cv.putText(debug_image, text, (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         debug_image = draw_info(debug_image, fps, mode, number)
+
+        x = 50
+        for i in range(len(sentence_arr)):
+            x = x + 100
+            debug_image = cv.putText(debug_image, sentence_arr[i], (50, x), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255),
+                                     2)
+
+        key = cv.waitKey(10)
+        if key == 49:
+            # print(sentence_arr[0])
+
+            debug_image = cv.putText(debug_image, text, (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            tts = gTTS(text=translated_text, lang="en")
+            tts.save("output_audio.mp3")
+
+        if key == 50:
+            pass
+            # print(sentence_arr[1])
+        if key == 51:
+            pass
+            # print(sentence_arr[2])
+
+        key = cv.waitKey(10)
+        if key == 13:  # Press ESC again to close the window completely
+            sentence_arr = enter_ispressed()
+            sentences = " ".join(sentence_arr)
+            sentences = str(sentences)
+            # print(sentences)
+            print(sentences)
+
+        key = cv.waitKey(10)
+        if key == 112:
+            textarr.pop()
+            # print(textarr)
 
         # Screen reflection #############################################################
         # cv.imshow('Hand Gesture Recognition', debug_image)
+        ret, buffer = cv.imencode('.jpg', debug_image)
+        frame_bytes = buffer.tobytes()
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+    #
+    # cap.release()
+    # cv.destroyAllWindows()
+    # print(textarr)
 
 
+@app.route('/NoEncountered', methods=['POST'])
+def noencountered():
+
+    global signal
+    if signal==1:
+        message="No encountered"
+        return jsonify({'message': message})
+    elif signal==2:
+        return jsonify({'message': "Yes encountered"})
+    else:
+        return jsonify({'message': "Not encountered"})
+
+
+@app.route('/translate', methods=['POST'])
+def translatesentece():
+    data = request.get_json()
+    sentence = data['sentence']
+    print(sentence)
+    translated_text = translate(sentence, "hi")
+
+    return jsonify({'message': translated_text})
+
+
+@app.route('/whatsapp', methods=['POST'])
+def sendmsg():
+    data = request.get_json()
+    message = data['sentence']
+    phone_number = "+919021069704"  # Phone number as a string
+    encoded_message = quote(message.encode('utf-8'))  # Encode message to bytes and then quote
+    pywhatkit.sendwhatmsg_instantly(phone_number, message)
+    return jsonify({'message': 'Message sent successfully'})
+
+
+def recommend_sentences(user_input):
     prefix = text
     # if prefix.lower() == 'exit':
     #     break
@@ -190,19 +283,36 @@ def main():
                 print(f"{i}. (Incomplete or nonsensical)")
     else:
         print("No suggestions found.")
+    return sentences
 
+@app.route('/recommendation', methods=['POST'])
+def enter_ispressed():
+    global text
+    text_generator = pipeline("text-generation", model="gpt2")
+    global text
+    data = text
+    prefix = data
+    sentence_Arr = []
+    max_length = 30
+    completions = text_generator(prefix, max_length=max_length, num_return_sequences=3)
+    if completions:
+        print("Auto-complete suggestions:")
+        for i, completion in enumerate(completions, 1):
+            generated_text = completion['generated_text']
+            # Filter out incomplete sentences
+            sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s", generated_text)
+            complete_sentences = [sentence for sentence in sentences if
+                                  len(sentence.strip()) > 0 and len(sentence.split()) >= 3]
+            if complete_sentences:
+                print(f"{i}. {complete_sentences[0]}")
+                sentence_Arr.append(complete_sentences[0])
+            else:
+                print(f"{i}. (Incomplete or nonsensical)")
+    else:
+        print("No suggestions found.")
 
-    text_input = text
-    message=text_input
-    # kit.sendwhatmsg_instantly(phonenumber,message)
-    translated_text = translate(text_input, "hi")
-    print(translated_text)
-    tts=gTTS(text=translated_text,lang="en")
-    tts.save("output_audio.mp3")
-    cap.release()
-    cv.destroyAllWindows()
-    print(textarr)
-
+    result = sentence_Arr
+    return jsonify({'result': result})
 
 def select_mode(key, mode):
     number = -1
@@ -280,14 +390,11 @@ def pre_process_landmark(landmark_list):
     return temp_landmark_list
 
 
-
-
-
 def logging_csv(number, mode, landmark_list):
     if mode == 0:
         pass
     if mode == 1 and (0 <= number <= 99):
-        csv_path = 'model/keypoint_classifier/keypoint.csv'
+        csv_path = '.venv/lib/python3.8/model/keypoint_classifier/keypoint.csv'
         with open(csv_path, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([number, *landmark_list])
