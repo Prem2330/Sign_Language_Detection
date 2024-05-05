@@ -5,6 +5,7 @@ import copy  # Creating duplicate objects
 import argparse  # Parse command line arguments
 import itertools  # Used for looping
 import pywhatkit
+import time
 from transformers import pipeline
 from flask_cors import CORS
 import re
@@ -18,7 +19,7 @@ from model import KeyPointClassifier  # work with keypoints
 from gtts import gTTS
 from mtranslate import translate
 import pywhatkit as kit
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, render_template, Response, jsonify, request,send_from_directory
 
 app = Flask(__name__)
 CORS(app)
@@ -33,6 +34,10 @@ def index():
 @app.route('/video_feed')
 def video_feed():
     return Response(main(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/Static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('Static', filename)
 
 
 def get_args():
@@ -59,6 +64,7 @@ def get_args():
 
 text = ""
 signal=0
+recommendation_done=0
 
 
 # This function gives the information of the device which helps in setting up the camera,etc
@@ -168,12 +174,16 @@ def main():
                     keypoint_classifier_labels[hand_sign_id]
                 )
                 if hand_sign_text not in textarr:
-                    textarr.append(hand_sign_text)
-                    if (textarr[-1] == "No"):
+                    if (hand_sign_text == "No"):
                         global signal
                         signal=1
-                    elif(textarr[-1] == "Yes"):
-                        signal=2
+                    elif (hand_sign_text == "Yes"):
+                        signal = 2
+                    elif (hand_sign_text == "Message"):
+                        signal = 3
+                    else:
+                        textarr.append(hand_sign_text)
+
 
         global text
 
@@ -193,8 +203,7 @@ def main():
             # print(sentence_arr[0])
 
             debug_image = cv.putText(debug_image, text, (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            tts = gTTS(text=translated_text, lang="en")
-            tts.save("output_audio.mp3")
+
 
         if key == 50:
             pass
@@ -230,16 +239,21 @@ def main():
 
 
 @app.route('/NoEncountered', methods=['POST'])
-def noencountered():
-
+def Yesnoencountered():
     global signal
-    if signal==1:
-        message="No encountered"
-        return jsonify({'message': message})
-    elif signal==2:
+    if signal == 1:
+        signal=0;
+        return jsonify({'message': "No encountered"})
+    elif signal == 2:
+        signal = 0;
         return jsonify({'message': "Yes encountered"})
+    elif signal == 3 and recommendation_done==1:
+        signal = 0;
+        return jsonify({'message': "Send message"})
     else:
-        return jsonify({'message': "Not encountered"})
+        return jsonify({'message':"Not encountered"})
+
+
 
 
 @app.route('/translate', methods=['POST'])
@@ -248,7 +262,8 @@ def translatesentece():
     sentence = data['sentence']
     print(sentence)
     translated_text = translate(sentence, "hi")
-
+    tts = gTTS(text=translated_text, lang="en")
+    tts.save("./Static/output_audio.mp3")
     return jsonify({'message': translated_text})
 
 
@@ -259,34 +274,14 @@ def sendmsg():
     phone_number = "+919021069704"  # Phone number as a string
     encoded_message = quote(message.encode('utf-8'))  # Encode message to bytes and then quote
     pywhatkit.sendwhatmsg_instantly(phone_number, message)
+    global signal
+    signal=0
     return jsonify({'message': 'Message sent successfully'})
-
-
-def recommend_sentences(user_input):
-    prefix = text
-    # if prefix.lower() == 'exit':
-    #     break
-
-    max_length = 50
-    completions = text_generator(prefix, max_length=max_length, num_return_sequences=3)
-    if completions:
-        print("Auto-complete suggestions:")
-        for i, completion in enumerate(completions, 1):
-            generated_text = completion['generated_text']
-            # Filter out incomplete sentences
-            sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s", generated_text)
-            complete_sentences = [sentence for sentence in sentences if
-                                  len(sentence.strip()) > 0 and len(sentence.split()) >= 3]
-            if complete_sentences:
-                print(f"{i}. {complete_sentences[0]}")
-            else:
-                print(f"{i}. (Incomplete or nonsensical)")
-    else:
-        print("No suggestions found.")
-    return sentences
 
 @app.route('/recommendation', methods=['POST'])
 def enter_ispressed():
+    global recommendation_done
+    recommendation_done=1
     global text
     text_generator = pipeline("text-generation", model="gpt2")
     global text
@@ -312,6 +307,7 @@ def enter_ispressed():
         print("No suggestions found.")
 
     result = sentence_Arr
+
     return jsonify({'result': result})
 
 def select_mode(key, mode):
