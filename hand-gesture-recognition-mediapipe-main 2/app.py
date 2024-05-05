@@ -8,6 +8,8 @@ import pywhatkit
 import time
 from transformers import pipeline
 from flask_cors import CORS
+from googletrans import Translator
+import google.generativeai as genai   # pip install -q -U google-generativeai
 import re
 import cv2 as cv  # Computer Vision library for face detection, object detection , camera and more
 import numpy as np  # Create arrays for scientific computing
@@ -21,10 +23,15 @@ from mtranslate import translate
 import pywhatkit as kit
 from flask import Flask, render_template, Response, jsonify, request,send_from_directory
 
+
+
+
 app = Flask(__name__)
 CORS(app)
 
-
+API_KEY = 'AIzaSyCWSTzDbV4y9M5iSiVPlbYWBq4djZ-p3Sg'
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel('gemini-pro')
 
 @app.route('/')
 def index():
@@ -65,6 +72,7 @@ def get_args():
 text = ""
 signal=0
 recommendation_done=0
+
 
 
 # This function gives the information of the device which helps in setting up the camera,etc
@@ -238,6 +246,22 @@ def main():
     # print(textarr)
 
 
+def translate_text(text, target_language):
+    translator = Translator()
+    translation = translator.translate(text, dest=target_language)
+    return translation.text
+
+
+@app.route('/translate', methods=['POST'])
+def translatesentence():
+    data=request.get_json()
+    sentence=data['sentence']
+    hindi_text = translate_text(sentence,'hi')
+    tts = gTTS(text=hindi_text, lang="en")
+    tts.save("./Static/output_audio.mp3")
+    return jsonify({'message': hindi_text})
+
+
 @app.route('/NoEncountered', methods=['POST'])
 def Yesnoencountered():
     global signal
@@ -254,17 +278,18 @@ def Yesnoencountered():
         return jsonify({'message':"Not encountered"})
 
 
-
-
-@app.route('/translate', methods=['POST'])
-def translatesentece():
-    data = request.get_json()
-    sentence = data['sentence']
-    print(sentence)
-    translated_text = translate(sentence, "hi")
-    tts = gTTS(text=translated_text, lang="en")
-    tts.save("./Static/output_audio.mp3")
-    return jsonify({'message': translated_text})
+@app.route('/recommendation', methods=['POST'])
+def enter_ispressed():
+    global recommendation_done
+    recommendation_done = 1
+    global text
+    prompt = f"Write 3 different grammatically correct and simple short sentences that contain with the following words without numbering:: '{text}'"
+    response = model.generate_content(prompt)
+    sentences = response.text
+    sentences_array = sentences.split('\n')
+    sentences_array = [sentence.strip() for sentence in sentences_array if sentence.strip()]
+    result = sentences_array
+    return jsonify({'result': result})
 
 
 @app.route('/whatsapp', methods=['POST'])
@@ -278,37 +303,50 @@ def sendmsg():
     signal=0
     return jsonify({'message': 'Message sent successfully'})
 
-@app.route('/recommendation', methods=['POST'])
-def enter_ispressed():
-    global recommendation_done
-    recommendation_done=1
-    global text
-    text_generator = pipeline("text-generation", model="gpt2")
-    global text
-    data = text
-    prefix = data
-    sentence_Arr = []
-    max_length = 30
-    completions = text_generator(prefix, max_length=max_length, num_return_sequences=3)
-    if completions:
-        print("Auto-complete suggestions:")
-        for i, completion in enumerate(completions, 1):
-            generated_text = completion['generated_text']
-            # Filter out incomplete sentences
-            sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s", generated_text)
-            complete_sentences = [sentence for sentence in sentences if
-                                  len(sentence.strip()) > 0 and len(sentence.split()) >= 3]
-            if complete_sentences:
-                print(f"{i}. {complete_sentences[0]}")
-                sentence_Arr.append(complete_sentences[0])
-            else:
-                print(f"{i}. (Incomplete or nonsensical)")
-    else:
-        print("No suggestions found.")
 
-    result = sentence_Arr
 
-    return jsonify({'result': result})
+
+
+
+# @app.route('/recommendation', methods=['POST'])
+# def enter_ispressed():
+#     global text
+#     prompt = f"Write 3 different grammatically correct and simple sentences that contain with the following words: '{text}'"
+#     response = model.generate_content(prompt)
+#     sentences = response.text
+#     return sentences
+#     global recommendation_done
+#     recommendation_done=1
+#     global text
+#
+#     prompt = f"Write 3 different grammatically correct and simple sentences that contain with the following words: '{text}'"
+#     response = model.generate_content(prompt)
+#     sentences = response.text
+#     # text_generator = pipeline("text-generation", model="gpt2")
+#     # global text
+#     # data = text
+#     # prefix = data
+#     # sentence_Arr = []
+#     # max_length = 30
+#     # completions = text_generator(prefix, max_length=max_length, num_return_sequences=3)
+#     # if completions:
+#     #     print("Auto-complete suggestions:")
+#     #     for i, completion in enumerate(completions, 1):
+#     #         generated_text = completion['generated_text']
+#     #         # Filter out incomplete sentences
+#     #         sentences = re.split(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s", generated_text)
+#     #         complete_sentences = [sentence for sentence in sentences if
+#     #                               len(sentence.strip()) > 0 and len(sentence.split()) >= 3]
+#     #         if complete_sentences:
+#     #             print(f"{i}. {complete_sentences[0]}")
+#     #             sentence_Arr.append(complete_sentences[0])
+#     #         else:
+#     #             print(f"{i}. (Incomplete or nonsensical)")
+#     # else:
+#     #     print("No suggestions found.")
+#
+#
+#
 
 def select_mode(key, mode):
     number = -1
